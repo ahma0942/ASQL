@@ -1,0 +1,583 @@
+<?php
+class asql
+{
+	public $ALLOWED_CHARS="!\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[]^_`abcdefghijklmnopqrstuvwxyz{|}~ ";
+	public $ASQL_FUNCS=array("min"=>array("val","err"),"ai","charset"=>array(0,1,2),"key","max"=>array("val","err"),"err");
+	protected $error;
+	private function allowed_chars($str)
+	{
+		if(preg_match("#^[a-zA-Z0-9!\"\#$%&'()*+,-\./:;<=>?@\[\]^_`{|}~ ]+$#",$str)) return true;
+		else return false;
+	}
+	
+	function create_table($table,$fields=FALSE)
+	{
+		global $root_dir;
+		$this->error=false;
+		if(file_exists($root_dir.'tables/'.$table.'.txt'))
+		{
+			if($fields==FALSE OR !is_array($fields) OR filesize($root_dir.'tables/'.$table.'.txt')>0)
+			{
+				$this->error.="Error: Table '$table' already exists<br/>\n";
+				return false;
+			}
+			else $reading=fopen($root_dir.'tables/'.$table.'.txt','w');
+		}
+		else $reading=fopen($root_dir.'tables/'.$table.'.txt','w');
+		if($fields!==FALSE AND is_array($fields))
+		{
+			foreach($fields as $name=>$row)
+			{
+				if(!$this->allowed_chars($name)) $this->error.="Fieldname '$name' contains bad characters. 'echo \$asql->ALLOWED_CHARS;' to show allowed characters.";
+				if(in_array("",$this->ASQL_FUNCS)) {
+					echo "Got Irix";
+				}
+			}
+			if($this->error) return false;
+			else return true;
+			$fields=json_encode($fields);
+			$check=fwrite($reading,$fields);
+			if($check) return true;
+			else
+			{
+				$this->error="Didn't insert rows in table.<br/>\n";
+				unlink($root_dir.'tables/'.$table.'.txt');
+				return false;
+			}
+		}
+		else return true;
+	}
+	
+	function insert($table,$set)
+	{
+		global $root_dir;
+		$this->error=false;
+		$file=$root_dir.'tables/'.$table.'.txt';
+		if(file_exists($file)) $reading=file_get_contents($file);
+		else
+		{
+			$this->error.="Error: File '$file' does not exist.<br>";
+			return false;
+		}
+		if(!json_decode($reading))
+		{
+			$this->error="Could not decode table, table corrupt.<br/>\n";
+			return false;
+		}
+		else $reading=json_decode($reading,true);
+		return $reading;
+	}
+	
+	function table_fix($table,$check=false)
+	{
+		global $root_dir;
+		$this->error=false;
+		$end_file_result="";
+		if(file_exists($root_dir.'tables/'.$table.'.txt')) $reading=fopen($root_dir.'tables/'.$table.'.txt','r');
+		else $this->error.="Error: File 'tables/$table.txt' does not exist.<br>";
+		if($this->error) return false;
+		$line1=fgets($reading);
+		$end_file_result=$line1;
+		$int=substr_count($line1,"|");
+		$line_num=1;
+		while(!feof($reading))
+		{
+			$line_num++;
+			$line=fgets($reading);
+			$int2=substr_count($line,"|");
+			if(!$check) $end_file_result.=$line;
+			$line=str_replace(array("\r", "\n"), '', $line);
+			if($line=="" OR $line=="\n")
+			{
+				$output.="Problem detected at line number '$line_num' in table '$table': Line is empty<br>";
+				if($check) continue;
+			}
+			if($int2>$int)
+			{
+				if($check)
+				{
+					/*$str=split_nth($line,"|",$int);
+					$line=$str[0]."|";*/
+				}
+				else $output.="Problem detected at line number '$line_num' in table '$table': $int '|' is needed, $int2 is given<br>";
+			}
+			elseif($int2<$int)
+			{
+				$output.="Problem detected at line number '$line_num' in table '$table': $int '|' is needed, only $int2 is given.<br>";
+				if($int-1==$int2 OR $int-2==$int2)
+				{
+					if($check) $output.="Trying to fix the problem...<br>";
+					else $output.="Trying to find more info about the problem...<br>";
+					
+					$check2=true;
+					if(substr($line,0,1)!="|")
+					{
+						$check2=false;
+						if($check)
+						{
+							$line="|".$line;
+							$output.="<font color='green'>Problem fixed successfully</font><br>";
+						}
+						else $output.="<font color='green'>More info found:</font> Missing '|' in the beginning of the line<br>";
+					}
+					if(substr($line,-1)!="|")
+					{
+						$check2=false;
+						if($check)
+						{
+							$line.="|";
+							$output.="<font color='green'>Problem fixed successfully</font><br>";
+						}
+						else $output.="<font color='green'>More info found:</font> Missing '|' in the end of the line<br>";
+					}
+					
+					if($check2)
+					{
+						if($check) $output.="<font color='red'>Unable to fix the problem</font><br>";
+						else $output.="<font color='red'>Unable to find more info about problem</font><a onclick='$(this).find('span').show();'>Show</a><br>";
+					}
+				}
+			}
+			$line.="\n";
+			if($check)$end_file_result.=$line;
+		}
+		fclose($reading);
+		$writing=fopen($root_dir.'tables/'.$table.'.txt','w');
+		fputs($writing,$end_file_result);
+		fclose($writing);
+		return $output;
+	}
+	
+	function delete_field($table,$field)
+	{
+		global $root_dir;
+		$this->error=false;
+		$end_file_result="";
+		if(file_exists($root_dir.'tables/'.$table.'.txt')) $reading=fopen($root_dir.'tables/'.$table.'.txt','r');
+		else $this->error.="Error: File 'tables/$table.txt' does not exist.<br>";
+		if($reading) $line1=explode("|",fgets($reading));
+		else $this->error.="Error: No file specified<br>";
+		if($this->error) return false;
+		$fields=array();
+		foreach($line1 as $value) if($value!="" AND $value!="\n") $fields[]=$value;
+		
+		$check=false;
+		$i=0;
+		foreach($fields as $name)
+		{
+			$i++;
+			if($field==$name)
+			{
+				$check=true;
+				$num=$i;
+				break;
+			}
+		}
+		if(!$check) $this->error.="Error: Cannot find field '$field'.<br>";
+		if($this->error) return false;
+		
+		$new_line="|";
+		$i=0;
+		foreach($fields as $name)
+		{
+			$i++;
+			if($i!=$num) $new_line.=$name."|";
+		}
+		
+		$end_file_result.=$new_line."\n";
+		while(!feof($reading))
+		{
+			$line=fgets($reading);
+			if(substr($line,0,1)==";") continue;
+			$line=explode("|",$line);
+			$i=0;
+			$line_new=array();
+			$new_line="";
+			foreach($line as $value) if($value!="" AND $value!="\n") $line_new[]=$value;
+			foreach($line_new as $name)
+			{
+				$i++;
+				if($i!=$num) $new_line.="|".$name;
+			}
+			$end_file_result.=$new_line."\n";
+		}
+		fclose($reading);
+		$writing=fopen($root_dir.'tables/'.$table.'.txt','w');
+		fputs($writing,$end_file_result);
+		fclose($writing);
+		return true;
+	}
+	
+	function fields($table)
+	{
+		global $root_dir;
+		$this->error=false;
+		if(file_exists($root_dir.'tables/'.$table.'.txt')) $reading=fopen($root_dir.'tables/'.$table.'.txt','r');
+		else $this->error.="Error: File 'tables/$table.txt' does not exist.<br>";
+		if($reading) $line1=explode("|",fgets($reading));
+		else $this->error.="Error: No file specified<br>";
+		if($this->error) return false;
+		$fields=array();
+		foreach($line1 as $value) if($value!="" AND $value!="\n") $fields[]=$value;
+		return $fields;
+	}
+	
+	function select($table,$where)
+	{
+		global $root_dir;
+		$this->error=false;
+		if(file_exists($root_dir.'tables/'.$table.'.txt')) $reading=fopen($root_dir.'tables/'.$table.'.txt','r');
+		else $this->error.="Error: File 'tables/$table.txt' does not exist.<br>";
+		if(isset($reading)) $line1=explode("|",fgets($reading));
+		else $this->error.="Error: No file specified<br>";
+		if($where!="*") if(!is_array($where)) $this->error.="Error: WHERE must be Array<br>";
+		if($this->error) return false;
+		
+		$fields=array();
+		foreach($line1 as $value) if($value!="" AND $value!="\n") $fields[]=$value;
+		if($where=="*")
+		{
+			$this->error=false;
+			$i2=0;
+			while(!feof($reading))
+			{
+				$i=0;
+				$i2++;
+				$line=fgets($reading);
+				if(substr($line,0,1)==";") continue;
+				$line=explode("|",$line);
+				
+				foreach($fields as $field)
+				{
+					$i++;
+					$end_file_result[$i2][$field]=$line[$i];
+				}
+				$returned=true;
+			}
+			GOTO END_OF_SELECT;
+		}
+		
+		$fw=array();
+		$vw=array();
+		$array_f_v_w=array();
+		$i_where=0;
+		foreach($where as $name=>$value)
+		{
+			if(strpos($name,"|") OR strpos($value,'|'))
+			{
+				$this->error.="Error: WHERE must not contain '|'";
+				break;
+			}
+			$i_where++;
+			$fw[]=$name;
+			$vw[]=$value;
+			$array_f_v_w[$name]=$value;
+		}
+		if($this->error) return false;
+		
+		$check=false;
+		$final_fields_where=array();
+		foreach($fw as $value)
+		{
+			$i=0;
+			foreach($fields as $value1)
+			{
+				$i++;
+				if($value==$value1)
+				{
+					$check=true;
+					$final_fields_where[$i]=$array_f_v_w[$value];
+				}
+			}
+			if(!$check) $this->error.="No such Field: '$value' in WHERE<br>";
+			$check=false;
+		}
+		
+		if($this->error) return false;
+		$returned=false;
+		$end_file_result=array();
+		$i2=0;
+		while(!feof($reading))
+		{
+			$line=fgets($reading);
+			if(substr($line,0,1)==";") continue;
+			if($line=="" OR $line==" " OR $line=="\n") continue;
+			$line=explode("|",$line);
+			$check=true;
+			foreach($final_fields_where as $id=>$value) if($line[$id]!=$value) $check=false;
+			if(!$check) continue;
+			$i2++;
+			$i=0;
+			foreach($fields as $field)
+			{
+				$i++;
+				$end_file_result[$i2][$field]=$line[$i];
+			}
+			$returned=true;
+		}
+		
+		END_OF_SELECT:
+		if($returned) return $end_file_result;
+		else
+		{
+			if($where=="*") $this->error.="Error: Cannot table is empty";
+			else
+			{
+				$this->error.="Error: cannot find ";
+				foreach($final_fields_where as $id=>$value) $this->error.=$fields[$id-1]."=".$value." ";
+				$this->error.="in WHERE";
+			}
+			return false;
+		}
+	}
+	
+	function delete($table,$where)
+	{
+		global $root_dir;
+		$this->error=false;
+		if(!is_array($where)) $this->error.="Error: WHERE must be Array<br>";
+		$end_file_result="";
+		$file=$root_dir.'tables/'.$table;
+		if(file_exists($file.'.txt')) $reading=fopen($file.'.txt','r');
+		else $this->error.="Error: File '$file.txt' does not exist.<br>";
+		if($reading) $line1=explode("|",fgets($reading));
+		else $this->error.="Error: No file specified<br>";
+		if($this->error) return false;
+		
+		$end_file_result.=implode("|",$line1);
+		$fields=array();
+		foreach($line1 as $value) if($value!="" AND $value!="\n") $fields[]=$value;
+		
+		$fw=array();
+		$vw=array();
+		$array_f_v_w=array();
+		$i_where=0;
+		foreach($where as $name=>$value)
+		{
+			if(strpos($name,"|") OR strpos($value,'|'))
+			{
+				$this->error.="Error: WHERE must not contain '|'";
+				break;
+			}
+			$i_where++;
+			$fw[]=$name;
+			$vw[]=$value;
+			$array_f_v_w[$name]=$value;
+		}
+		if($this->error) return false;
+		
+		$check=false;
+		$final_fields_where=array();
+		foreach($fw as $value)
+		{
+			$i=0;
+			foreach($fields as $value1)
+			{
+				$i++;
+				if($value==$value1)
+				{
+					$check=true;
+					$final_fields_where[$i]=$array_f_v_w[$value];
+				}
+			}
+			if(!$check) $this->error.="No such Field: '$value' in WHERE<br>";
+			$check=false;
+		}
+		
+		if($this->error) return false;
+		$deleted=false;
+		while(!feof($reading))
+		{
+			$line=fgets($reading);
+			if(substr($line,0,1)==";") continue;
+			$line=explode("|",$line);
+			$check=true;
+			foreach($final_fields_where as $id=>$value) if($line[$id]!=$value) $check=false;
+			if(!$check)
+			{
+				$end_file_result.=implode("|",$line);
+				continue;
+			}
+			//============LOG
+			file_put_contents($root_dir.'pages/log.txt','[DELETE]'.(isset($_SESSION['username']) ? $_SESSION['username'] : '').strip_nl(implode("|",$line))."\n",FILE_APPEND | LOCK_EX);
+			//============LOG
+			$deleted=true;
+			continue;
+		}
+		$writing=fopen($file.'.tmp','w');
+		fputs($writing,$end_file_result);
+		fclose($writing);
+		fclose($reading);
+		
+		if($deleted)
+		{
+			rename($file.'.tmp', $file.'.txt');
+			return true;
+		}
+		else
+		{
+			unlink($file.'.tmp');
+			$this->error.="Error: cannot find ";
+			foreach($final_fields_where as $id=>$value) $this->error.=$fields[$id-1]."=".$value." ";
+			$this->error.="in WHERE";
+			return false;
+		}
+	}
+	
+	function update($table,$set,$where)
+	{
+		global $root_dir;
+		$this->error=false;
+		if(!is_array($set)) $this->error.="Error: SET must be Array<br>";
+		if(!is_array($where)) $this->error.="Error: WHERE must be Array<br>";
+		$end_file_result="";
+		if(file_exists($root_dir.'tables/'.$table.'.txt')) $reading=fopen($root_dir.'tables/'.$table.'.txt','r');
+		else $this->error.="Error: File 'tables/$table.txt' does not exist.<br>";
+		if($reading) $line1=explode("|",fgets($reading));
+		else $this->error.="Error: No file specified<br>";
+		if($this->error) return false;
+		
+		$f=array();
+		$v=array();
+		$array_f_v=array();
+		$i_set=0;
+		foreach($set as $name=>$value)
+		{
+			if(strpos($name,"|") OR strpos($value,'|'))
+			{
+				$this->error.="Error: SET must not contain '|'";
+				break;
+			}
+			$i_set++;
+			$f[]=$name;
+			$v[]=$value;
+			$array_f_v[$name]=$value;
+		}
+		
+		$fw=array();
+		$vw=array();
+		$array_f_v_w=array();
+		$i_where=0;
+		foreach($where as $name=>$value)
+		{
+			if(strpos($name,"|") OR strpos($value,'|'))
+			{
+				$this->error.="Error: WHERE must not contain '|'";
+				break;
+			}
+			$i_where++;
+			$fw[]=$name;
+			$vw[]=$value;
+			$array_f_v_w[$name]=$value;
+		}
+		if($this->error) return false;
+		
+		$end_file_result.=implode("|",$line1);
+		$fields=array();
+		foreach($line1 as $value) if($value!="" AND $value!="\n") $fields[]=$value;
+		
+		$check=false;
+		$final_fields=array();
+		foreach($f as $value)
+		{
+			$i=0;
+			foreach($fields as $value1)
+			{
+				$i++;
+				if($value==$value1)
+				{
+					$check=true;
+					$final_fields[$i]=$array_f_v[$value];
+				}
+			}
+			if(!$check) $this->error.="No such Field: '$value' in SET<br>";
+			$check=false;
+		}
+		
+		$check=false;
+		$final_fields_where=array();
+		foreach($fw as $value)
+		{
+			$i=0;
+			foreach($fields as $value1)
+			{
+				$i++;
+				if($value==$value1)
+				{
+					$check=true;
+					$final_fields_where[$i]=$array_f_v_w[$value];
+				}
+			}
+			if(!$check) $this->error.="No such Field: '$value' in WHERE<br>";
+			$check=false;
+		}
+		
+		if($this->error) return false;
+		$replaced=false;
+		while(!feof($reading))
+		{
+			$line=fgets($reading);
+			if(substr($line,0,1)==";")
+			{
+				$end_file_result.=$line;
+				continue;
+			}
+			$line=explode("|",$line);
+			$check=true;
+			foreach($final_fields_where as $id=>$value) if($line[$id]!=$value) $check=false;
+			if(!$check)
+			{
+				$end_file_result.=implode("|",$line);
+				continue;
+			}
+			
+			$i=0;
+			$new_line="";
+			foreach($fields as $field)
+			{
+				$i++;
+				$check=false;
+				$new_line.="|";
+				foreach($final_fields as $id=>$value)
+				{
+					if($i==$id)
+					{
+						$new_line.=$value;
+						$check=true;
+					}
+				}
+				if(!$check) $new_line.=$line[$i];
+			}
+			$end_file_result.=$new_line;
+			$replaced=true;
+			
+			//============LOG
+			file_put_contents($root_dir.'pages/log.txt','[UPDATE]#'.(isset($_SESSION['username']) ? $_SESSION['username'] : '').'#'.strip_nl(implode("|",$line).' => '.$new_line)."\n",FILE_APPEND | LOCK_EX);
+			//============LOG
+		}
+		$writing=fopen($root_dir.'tables/'.$table.'.tmp','w');
+		fputs($writing,$end_file_result);
+		fclose($writing);
+		fclose($reading);
+		
+		if($replaced)
+		{
+			rename($root_dir.'tables/'.$table.'.tmp', $root_dir.'tables/'.$table.'.txt');
+			return true;
+		}
+		else
+		{
+			unlink($root_dir.'tables/'.$table.'.tmp');
+			$this->error.="Error: cannot find ";
+			foreach($final_fields_where as $id=>$value) $this->error.=$fields[$id-1]."=".$value." ";
+			$this->error.="in WHERE";
+			return false;
+		}
+	}
+	
+	function error()
+	{
+		return $this->error;
+	}
+}
+?>
